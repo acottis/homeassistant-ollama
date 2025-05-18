@@ -3,7 +3,7 @@
 import logging
 from typing import Literal, override
 
-from ollama import AsyncClient, ChatResponse, chat
+from ollama import AsyncClient
 
 from homeassistant.components.conversation import ChatLog, ConversationEntity
 from homeassistant.components.conversation.models import (

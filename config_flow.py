@@ -5,9 +5,10 @@ from typing import Any, final, override
 
 from voluptuous import Required, Schema
 
-from const import DOMAIN
 from homeassistant import config_entries
 from homeassistant.const import CONF_MODEL, CONF_NAME, CONF_URL
+
+from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
