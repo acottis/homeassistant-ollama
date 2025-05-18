@@ -10,13 +10,14 @@ from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+PLATFORMS = [Platform.CONVERSATION]
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Run on integration load."""
     _LOGGER.error("Loading %s", DOMAIN)
 
-    platforms = [Platform.CONVERSATION]
-    await hass.config_entries.async_forward_entry_setups(entry, platforms)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 

@@ -3,7 +3,7 @@
 import logging
 from typing import Literal, override
 
-from ollama import AsyncClient
+from ollama import AsyncClient, RequestError, ResponseError
 
 from homeassistant.components.conversation import ChatLog, ConversationEntity
 from homeassistant.components.conversation.models import (
@@ -18,6 +18,18 @@ from homeassistant.helpers.intent import IntentResponse
 from homeassistant.util.ssl import get_default_context
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(
+    _hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    """Entry point for our Conversation Entity."""
+    _LOGGER.error("Adding Entity")
+
+    agent = AsyncClient(host=entry.data[CONF_URL], verify=get_default_context())
+    async_add_entities([LLMAgent(agent)])
 
 
 class LLMAgent(ConversationEntity):
@@ -43,27 +55,23 @@ class LLMAgent(ConversationEntity):
         _LOGGER.error(user_input)
         _LOGGER.error(chat_log)
 
-        response = await self.agent.chat(
-            model="qwen3:8b", messages=[{"role": "user", "content": user_input.text}]
-        )
-        _LOGGER.error(response)
-        message = response.message.content
-
-        if not isinstance(message, str):
-            raise TypeError(f"Expected str, got {type(message).__name__}")
+        try:
+            response = await self.agent.chat(
+                model="qwen3:8b",
+                messages=[{"role": "user", "content": user_input.text}],
+            )
+            _LOGGER.error(response)
+            message = response.message.content
+            if not isinstance(message, str):
+                message = "Error: Empty response from agent"
+        except ResponseError as e:
+            message = str(e)
+        except ConnectionError as e:
+            message = str(e)
+        except RequestError:
+            # Should not be possible to hit this
+            raise
 
         response = IntentResponse(language="en")
         response.async_set_speech(message)
         return ConversationResult(response)
-
-
-async def async_setup_entry(
-    _hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddConfigEntryEntitiesCallback,
-) -> None:
-    """Entry point for our Conversation Entity."""
-    _LOGGER.error("Adding Entity")
-
-    agent = AsyncClient(host=entry.data[CONF_URL], verify=get_default_context())
-    async_add_entities([LLMAgent(agent)])
