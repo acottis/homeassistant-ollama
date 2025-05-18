@@ -21,7 +21,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     return True
 
 
-async def async_unload_entry(_hass: HomeAssistant, _entry: ConfigEntry):
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Run on integration exit."""
     _LOGGER.error("Unloading %s", DOMAIN)
-    return True
+
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

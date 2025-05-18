@@ -5,16 +5,32 @@ from typing import Any, final, override
 
 from voluptuous import Required, Schema
 
-from homeassistant import config_entries
-from homeassistant.const import CONF_MODEL, CONF_NAME, CONF_URL
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.const import CONF_MODEL, CONF_URL
+from homeassistant.helpers.selector import (
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 
 from .const import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
+AGENT_SCHEMA = Schema(
+    {
+        Required(
+            CONF_URL, description={"suggested_value": "qwen3:latest"}
+        ): TextSelector(TextSelectorConfig(type=TextSelectorType.URL)),
+        Required(
+            CONF_MODEL, description={"suggested_value": "http://localhost:11434"}
+        ): str,
+    }
+)
+
 
 @final
-class LLMConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class LLMConfigFlow(ConfigFlow, domain=DOMAIN):
     """Integration Config Entry Point."""
 
     VERSION = 0
@@ -23,23 +39,15 @@ class LLMConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @override
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
+    ) -> ConfigFlowResult:
         """Create initialistion form for user.
 
         This is called in a loop until we return a config.
         """
 
-        # Exit when we have what we need
-        if user_input is not None:
-            _LOGGER.error(user_input)
-            return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
+        errors: dict[str, str] = {}
 
-        return self.async_show_form(
-            data_schema=Schema(
-                {
-                    Required(CONF_NAME): str,
-                    Required(CONF_URL): str,
-                    Required(CONF_MODEL): str,
-                }
-            ),
-        )
+        if user_input is not None:
+            return self.async_create_entry(title=user_input[CONF_URL], data=user_input)
+
+        return self.async_show_form(data_schema=AGENT_SCHEMA, errors=errors)
