@@ -2,5 +2,6 @@
   "domain": "llm",
   "name": "Better Ollama",
   "version": "0.0.1",
-  "config_flow": true
+  "config_flow": true,
+  "requirements": ["ollama==0.4.8"]
 }
