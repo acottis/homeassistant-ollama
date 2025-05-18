@@ -68,8 +68,9 @@ class LLMAgent(ConversationEntity):
             message = str(e)
         except ConnectionError as e:
             message = str(e)
-        except RequestError:
+        except RequestError as e:
             # Should not be possible to hit this
+            message = f"Bug in this integration: {e!s}"
             raise
 
         response = IntentResponse(language="en")
