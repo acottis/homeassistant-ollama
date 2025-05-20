@@ -20,10 +20,10 @@ _LOGGER = logging.getLogger(__name__)
 AGENT_SCHEMA = Schema(
     {
         Required(
-            CONF_URL, description={"suggested_value": "qwen3:latest"}
+            CONF_MODEL, description={"suggested_value": "qwen3:latest"}
         ): TextSelector(TextSelectorConfig(type=TextSelectorType.URL)),
         Required(
-            CONF_MODEL, description={"suggested_value": "http://localhost:11434"}
+            CONF_URL, description={"suggested_value": "http://localhost:11434"}
         ): str,
     }
 )
