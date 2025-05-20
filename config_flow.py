@@ -19,9 +19,10 @@ _LOGGER = logging.getLogger(__name__)
 
 AGENT_SCHEMA = Schema(
     {
-        Required(CONF_MODEL, description={"suggested_value": "qwen3:8b"}): TextSelector(
-            TextSelectorConfig(type=TextSelectorType.URL)
-        ),
+        Required(
+            CONF_MODEL,
+            description={"suggested_value": "qwen3:8b"},
+        ): TextSelector(TextSelectorConfig(type=TextSelectorType.URL)),
         Required(
             CONF_URL, description={"suggested_value": "http://localhost:11434"}
         ): str,
@@ -48,6 +49,9 @@ class LLMConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            return self.async_create_entry(title=user_input[CONF_URL], data=user_input)
+            return self.async_create_entry(
+                title=user_input[CONF_MODEL],
+                data=user_input,
+            )
 
         return self.async_show_form(data_schema=AGENT_SCHEMA, errors=errors)

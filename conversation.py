@@ -87,7 +87,7 @@ class OllamaAgent(ConversationEntity):
         ]
 
         # Prevent infinite loop bugs
-        for _ in range(MAX_TOOL_ITERATIONS)
+        for _ in range(MAX_TOOL_ITERATIONS):
             response = await self.agent.chat(
                 model=self.model,
                 messages=messages,
