@@ -1,28 +1,37 @@
 """Integration with Conversation Entity."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 import logging
 from typing import Any, Literal, override
 
-from ollama import AsyncClient, Message, RequestError, ResponseError
+from httpx import ConnectError
+from ollama import AsyncClient, ChatResponse, ResponseError
 import voluptuous_openapi
 
 from homeassistant.components.conversation import ChatLog, ConversationEntity
+from homeassistant.components.conversation.chat_log import (
+    AssistantContent,
+    AssistantContentDeltaDict,
+    Content,
+    SystemContent,
+    ToolResultContent,
+    UserContent,
+)
 from homeassistant.components.conversation.models import (
     ConversationInput,
     ConversationResult,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_URL
+from homeassistant.const import CONF_MODEL, CONF_URL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import llm
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.intent import IntentResponse
 from homeassistant.util.ssl import get_default_context
 
-from .const import DOMAIN
+from .const import DOMAIN, MAX_TOOL_ITERATIONS
 
-_LOGGER = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -31,27 +40,10 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Entry point for our Conversation Entity."""
-    _LOGGER.error("Adding Entity")
-
-    agent = AsyncClient(host=entry.data[CONF_URL], verify=get_default_context())
-    async_add_entities([LLMAgent(agent)])
+    async_add_entities([OllamaAgent(entry)])
 
 
-def add_two_numbers(a: int, b: int) -> int:
-    """Add two numbers
-
-    Args:
-      a (int): The first number
-      b (int): The second number
-
-    Returns:
-      int: The sum of the two numbers
-
-    """
-    return a + b
-
-
-class LLMAgent(ConversationEntity):
+class OllamaAgent(ConversationEntity):
     """LLM conversation agent."""
 
     agent: AsyncClient
@@ -59,13 +51,17 @@ class LLMAgent(ConversationEntity):
     apis: str | list[str] | None
     model: str
 
-    def __init__(self, agent: AsyncClient):
+    def __init__(self, entry: ConfigEntry):
         """Init Agent."""
-        self._attr_name: str | None = "Custom Agent"
-        self.agent = agent
+        self._attr_name: str | None = entry.data[CONF_MODEL]
+        self._attr_unique_id: str | None = entry.entry_id
+
         self.prompt = "/no_think "
         self.apis = "assist"
-        self.model = "qwen3:8b"
+        self.model = entry.data[CONF_MODEL]
+        self.agent = AsyncClient(
+            host=entry.data[CONF_URL], verify=get_default_context()
+        )
 
     @property
     @override
@@ -77,70 +73,6 @@ class LLMAgent(ConversationEntity):
     async def _async_handle_message(
         self, user_input: ConversationInput, chat_log: ChatLog
     ) -> ConversationResult:
-        _LOGGER.error(user_input)
-
-        tools = await self.add_tools(chat_log, user_input)
-
-        messages: Sequence[Mapping[str, Any] | Message] = [
-            {"role": "user", "content": user_input.text}
-        ]
-        try:
-            response = await self.agent.chat(
-                model=self.model,
-                messages=messages,
-                tools=tools,
-                stream=False,
-            )
-
-            if response.message.tool_calls:
-                for tool in response.message.tool_calls:
-                    print(response.message.tool_calls)
-                    ret = add_two_numbers(**tool.function.arguments)
-                    messages.append(
-                        {
-                            "role": response.message.role,
-                            "content": response.message.role,
-                        }
-                    )
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "name": tool.function.name,
-                            "content": str(ret),
-                        }
-                    )
-                    tool_response = await self.agent.chat(
-                        model=self.model,
-                        messages=messages,
-                        stream=False,
-                    )
-                    response = IntentResponse(language="en")
-                    response.async_set_speech(tool_response.message.content)
-                    return ConversationResult(response)
-
-            _LOGGER.error(response)
-            message = response.message.content
-            if not isinstance(message, str):
-                message = "Error: Empty response from agent"
-        except ResponseError as e:
-            message = str(e)
-        except ConnectionError as e:
-            message = str(e)
-        except RequestError as e:
-            # Should not be possible to hit this
-            message = f"Bug in this integration: {e!s}"
-            raise
-
-        response = IntentResponse(language="en")
-        response.async_set_speech(message)
-        return ConversationResult(response)
-
-    async def add_tools(
-        self,
-        chat_log: ChatLog,
-        user_input: ConversationInput,
-    ) -> list[dict[str, Any]]:
-        """Insert tools into conversation."""
         await chat_log.async_update_llm_data(
             DOMAIN,
             user_input,
@@ -148,6 +80,52 @@ class LLMAgent(ConversationEntity):
             self.prompt,
         )
 
+        tools = await self.convert_tools(chat_log)
+
+        messages: Sequence[dict[str, Any]] = [
+            ollama_message(content) for content in chat_log.content
+        ]
+
+        # Prevent infinite loop bugs
+        for _ in range(MAX_TOOL_ITERATIONS)
+            response = await self.agent.chat(
+                model=self.model,
+                messages=messages,
+                tools=tools,
+                stream=True,
+            )
+
+            try:
+                deltas = [
+                    ollama_message(content)
+                    # Run any tool calls...
+                    async for content in chat_log.async_add_delta_content_stream(
+                        user_input.agent_id,
+                        ollama_stream(response),
+                    )
+                ]
+                messages.extend(deltas)
+            except ResponseError as e:
+                return respond_with_error(e, user_input, chat_log)
+            except ConnectError as e:
+                return respond_with_error(e, user_input, chat_log)
+
+            if not chat_log.unresponded_tool_results:
+                break
+
+        response = IntentResponse(language=user_input.language)
+        response.async_set_speech(chat_log.content[-1].content)
+        return ConversationResult(
+            response,
+            conversation_id=chat_log.conversation_id,
+            continue_conversation=chat_log.continue_conversation,
+        )
+
+    async def convert_tools(
+        self,
+        chat_log: ChatLog,
+    ) -> list[dict[str, Any]]:
+        """Convert homeassistant tools to ollama tools."""
         if chat_log.llm_api:
             return [ollama_tool(tool) for tool in chat_log.llm_api.tools]
         return []
@@ -163,3 +141,57 @@ def ollama_tool(tool: llm.Tool) -> dict[str, Any]:
             "parameters": voluptuous_openapi.convert(tool.parameters),
         },
     }
+
+
+def ollama_message(content: Content) -> dict[str, Any]:
+    """Convert Homeassistant Content to an Ollama Message."""
+    match content:
+        # The User
+        case UserContent():
+            return {"role": content.role, "content": content.content}
+        # What we tell the LLM about our tool call
+        case ToolResultContent():
+            return {
+                "role": "tool",
+                "content": str(content.tool_result),
+                "name": content.tool_name,
+            }
+        # Home assistant
+        case AssistantContent():
+            return {"role": content.role, "content": content.content}
+        # The LLM
+        case SystemContent():
+            return {"role": content.role, "content": content.content}
+
+
+async def ollama_stream(
+    responses: AsyncIterator[ChatResponse],
+) -> AsyncGenerator[AssistantContentDeltaDict]:
+    """Transform an Ollama delta stream into HA format."""
+    async for response in responses:
+        delta = AssistantContentDeltaDict(
+            role="assistant",
+            content=response.message.content,
+        )
+        if tool_calls := response.message.tool_calls:
+            delta["tool_calls"] = [
+                llm.ToolInput(
+                    tool_name=tool_call.function.name,
+                    tool_args=dict(tool_call.function.arguments),
+                )
+                for tool_call in tool_calls
+            ]
+        yield delta
+
+
+def respond_with_error(
+    error: Exception, user_input: ConversationInput, chat_log: ChatLog
+) -> ConversationResult:
+    """Send error back in conversation."""
+    response = IntentResponse(language=user_input.language)
+    response.async_set_speech(f"Error: {error!s}")
+    return ConversationResult(
+        response,
+        conversation_id=chat_log.conversation_id,
+        continue_conversation=chat_log.continue_conversation,
+    )
