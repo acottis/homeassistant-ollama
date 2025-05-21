@@ -97,6 +97,10 @@ class OllamaAgent(ConversationEntity):
                 messages=messages,
                 tools=tools,
                 stream=True,
+                options={
+                    'temperature': 0,
+                    'enable_thinking': False,
+                }
             )
 
             try:
