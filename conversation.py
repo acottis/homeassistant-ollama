@@ -8,7 +8,7 @@ from httpx import ConnectError
 from ollama import AsyncClient, ChatResponse, ResponseError
 import voluptuous_openapi
 
-from homeassistant.components import assist_pipeline, conversation
+from homeassistant.components import conversation
 from homeassistant.components.conversation import ChatLog, ConversationEntity
 from homeassistant.components.conversation.chat_log import (
     AssistantContent,
@@ -19,7 +19,6 @@ from homeassistant.components.conversation.chat_log import (
     UserContent,
 )
 from homeassistant.components.conversation.models import (
-    AbstractConversationAgent,
     ConversationInput,
     ConversationResult,
 )
@@ -37,34 +36,30 @@ LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
+    _hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Entry point for our Conversation Entity."""
-    print(entry)
-    agent = OllamaAgent(entry)
-    async_add_entities([agent])
-    assist_pipeline.async_migrate_engine(
-        hass, "conversation", entry.entry_id, agent.entity_id
-    )
-
-    conversation.async_set_agent(hass, entry, agent)
+    async_add_entities([OllamaAgent(entry)])
 
 
-class OllamaAgent(ConversationEntity, AbstractConversationAgent):
+class OllamaAgent(ConversationEntity):
     """LLM conversation agent."""
 
     agent: AsyncClient
     prompt: str
     apis: str | list[str] | None
     model: str
+    entry: ConfigEntry
+    _attr_supported_features: int = conversation.ConversationEntityFeature.CONTROL
 
     def __init__(self, entry: ConfigEntry):
         """Init Agent."""
         self._attr_name: str | None = entry.data[CONF_MODEL]
         self._attr_unique_id: str | None = entry.entry_id
 
+        self.entry = entry
         self.prompt = "/no_think "
         self.apis = "assist"
         self.model = entry.data[CONF_MODEL]
@@ -72,29 +67,11 @@ class OllamaAgent(ConversationEntity, AbstractConversationAgent):
             host=entry.data[CONF_URL], verify=get_default_context()
         )
 
-    #    @override
-    #    async def async_added_to_hass(self) -> None:
-    #        """When entity is added to Home Assistant."""
-    #        await super().async_added_to_hass()
-    #        #        assist_pipeline.async_migrate_engine(
-    #        #            self.hass, "conversation", self.entry.entry_id, self.entity_id
-    #        #        )
-    #        conversation.async_set_agent(self.hass, self.entry, self)
-    #        self.entry.async_on_unload(
-    #            self.entry.add_update_listener(self._async_entry_update_listener)
-    #        )
-    #
-    #    @override
-    #    async def async_will_remove_from_hass(self) -> None:
-    #        """When entity will be removed from Home Assistant."""
-    #        conversation.async_unset_agent(self.hass, self.entry)
-    #        await super().async_will_remove_from_hass()
-
     @property
     @override
     def supported_languages(self) -> list[str] | Literal["*"]:
         """Return a list of supported languages."""
-        return ["*"]
+        return "*"
 
     @override
     async def _async_handle_message(
