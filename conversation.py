@@ -47,11 +47,12 @@ async def async_setup_entry(
 class OllamaAgent(ConversationEntity):
     """LLM conversation agent."""
 
+    entry: ConfigEntry
     agent: AsyncClient
     prompt: str
     apis: str | list[str] | None
     model: str
-    entry: ConfigEntry
+    options: dict[str, Any]
     _attr_supported_features: int = conversation.ConversationEntityFeature.CONTROL
 
     def __init__(self, entry: ConfigEntry):
@@ -60,12 +61,16 @@ class OllamaAgent(ConversationEntity):
         self._attr_unique_id: str | None = entry.entry_id
 
         self.entry = entry
-        self.prompt = "/no_think "
         self.apis = "assist"
         self.model = entry.data[CONF_MODEL]
         self.agent = AsyncClient(
             host=entry.data[CONF_URL], verify=get_default_context()
         )
+        self.options = {
+            "temperature": 0,
+            "enable_thinking": False,
+        }
+        self.prompt = "/no_think "
 
     @property
     @override
@@ -97,10 +102,7 @@ class OllamaAgent(ConversationEntity):
                 messages=messages,
                 tools=tools,
                 stream=True,
-                options={
-                    'temperature': 0,
-                    'enable_thinking': False,
-                }
+                options=self.options,
             )
 
             try:
@@ -122,6 +124,7 @@ class OllamaAgent(ConversationEntity):
             if not chat_log.unresponded_tool_results:
                 break
 
+        LOGGER.debug(chat_log)
         response = IntentResponse(language=user_input.language)
         response.async_set_speech(chat_log.content[-1].content)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue] content should always be at least length 1
         return ConversationResult(
