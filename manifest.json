@@ -2,6 +2,9 @@
   "domain": "llm",
   "name": "Better Ollama",
   "version": "0.0.1",
+  "codeowners": ["@acottis"],
   "config_flow": true,
-  "requirements": ["ollama==0.4.8"]
+  "requirements": ["ollama==0.4.8"],
+  "dependencies": ["conversation"],
+  "after_dependencies": ["assist_pipeline", "intent"]
 }

@@ -8,6 +8,7 @@ from httpx import ConnectError
 from ollama import AsyncClient, ChatResponse, ResponseError
 import voluptuous_openapi
 
+from homeassistant.components import assist_pipeline, conversation
 from homeassistant.components.conversation import ChatLog, ConversationEntity
 from homeassistant.components.conversation.chat_log import (
     AssistantContent,
@@ -18,6 +19,7 @@ from homeassistant.components.conversation.chat_log import (
     UserContent,
 )
 from homeassistant.components.conversation.models import (
+    AbstractConversationAgent,
     ConversationInput,
     ConversationResult,
 )
@@ -35,15 +37,22 @@ LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
-    _hass: HomeAssistant,
+    hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Entry point for our Conversation Entity."""
-    async_add_entities([OllamaAgent(entry)])
+    print(entry)
+    agent = OllamaAgent(entry)
+    async_add_entities([agent])
+    assist_pipeline.async_migrate_engine(
+        hass, "conversation", entry.entry_id, agent.entity_id
+    )
+
+    conversation.async_set_agent(hass, entry, agent)
 
 
-class OllamaAgent(ConversationEntity):
+class OllamaAgent(ConversationEntity, AbstractConversationAgent):
     """LLM conversation agent."""
 
     agent: AsyncClient
@@ -62,6 +71,24 @@ class OllamaAgent(ConversationEntity):
         self.agent = AsyncClient(
             host=entry.data[CONF_URL], verify=get_default_context()
         )
+
+    #    @override
+    #    async def async_added_to_hass(self) -> None:
+    #        """When entity is added to Home Assistant."""
+    #        await super().async_added_to_hass()
+    #        #        assist_pipeline.async_migrate_engine(
+    #        #            self.hass, "conversation", self.entry.entry_id, self.entity_id
+    #        #        )
+    #        conversation.async_set_agent(self.hass, self.entry, self)
+    #        self.entry.async_on_unload(
+    #            self.entry.add_update_listener(self._async_entry_update_listener)
+    #        )
+    #
+    #    @override
+    #    async def async_will_remove_from_hass(self) -> None:
+    #        """When entity will be removed from Home Assistant."""
+    #        conversation.async_unset_agent(self.hass, self.entry)
+    #        await super().async_will_remove_from_hass()
 
     @property
     @override
@@ -108,13 +135,14 @@ class OllamaAgent(ConversationEntity):
             except ResponseError as e:
                 return respond_with_error(e, user_input, chat_log)
             except ConnectError as e:
+                e.args += ("Check connectivity to Ollama",)
                 return respond_with_error(e, user_input, chat_log)
 
             if not chat_log.unresponded_tool_results:
                 break
 
         response = IntentResponse(language=user_input.language)
-        response.async_set_speech(chat_log.content[-1].content)
+        response.async_set_speech(chat_log.content[-1].content)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue] content should always be at least length 1
         return ConversationResult(
             response,
             conversation_id=chat_log.conversation_id,

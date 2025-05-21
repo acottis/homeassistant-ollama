@@ -45,7 +45,6 @@ class LLMConfigFlow(ConfigFlow, domain=DOMAIN):
 
         This is called in a loop until we return a config.
         """
-
         errors: dict[str, str] = {}
 
         if user_input is not None:
