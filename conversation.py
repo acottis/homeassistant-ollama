@@ -103,6 +103,11 @@ class OllamaAgent(ConversationEntity):
                 options=self.options,
             )
 
+            # Skip qwen think block
+            if self.model.startswith("qwen3"):
+                for _ in range(4):
+                    await anext(response, None)
+
             try:
                 deltas = [
                     ollama_message(content)
@@ -122,13 +127,8 @@ class OllamaAgent(ConversationEntity):
             if not chat_log.unresponded_tool_results:
                 break
 
-        LOGGER.debug(chat_log)
-        content = chat_log.content[-1].content or ""
-        if self.model.startswith("qwen3"):
-            content = content[18:]
-
         response = IntentResponse(language=user_input.language)
-        response.async_set_speech(content)
+        response.async_set_speech(chat_log.content[-1].content or "")
         return ConversationResult(
             response,
             conversation_id=chat_log.conversation_id,
