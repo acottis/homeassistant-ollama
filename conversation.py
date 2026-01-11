@@ -49,7 +49,7 @@ class OllamaAgent(ConversationEntity):
 
     entry: ConfigEntry
     agent: AsyncClient
-    prompt: str
+    prompt: str | None
     apis: str | list[str] | None
     model: str
     options: dict[str, Any]
@@ -69,7 +69,7 @@ class OllamaAgent(ConversationEntity):
             # "temperature": 0,
             # "enable_thinking": False,
         }
-        self.prompt = entry.data[CONF_PROMPT]
+        self.prompt = entry.options.get(CONF_PROMPT)
 
     @property
     @override
@@ -81,6 +81,10 @@ class OllamaAgent(ConversationEntity):
     async def _async_handle_message(
         self, user_input: ConversationInput, chat_log: ChatLog
     ) -> ConversationResult:
+        # Skip qwen think block
+        if self.model.startswith("qwen3"):
+            self.prompt = f"/no_think\n{self.prompt}"
+
         await chat_log.async_provide_llm_data(
             user_input.as_llm_context(DOMAIN),
             self.apis,
