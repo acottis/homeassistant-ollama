@@ -6,7 +6,7 @@ from typing import Any, final, override
 from voluptuous import Required, Schema
 
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
-from homeassistant.const import CONF_MODEL, CONF_URL
+from homeassistant.const import CONF_MODEL, CONF_PROMPT, CONF_URL
 from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
@@ -48,6 +48,7 @@ class LLMConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
+            user_input[CONF_PROMPT] = "/no_think"
             return self.async_create_entry(
                 title=user_input[CONF_MODEL],
                 data=user_input,

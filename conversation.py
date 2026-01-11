@@ -23,7 +23,7 @@ from homeassistant.components.conversation.models import (
     ConversationResult,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_MODEL, CONF_URL
+from homeassistant.const import CONF_MODEL, CONF_PROMPT, CONF_URL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import llm
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -60,17 +60,16 @@ class OllamaAgent(ConversationEntity):
         self._attr_name: str | None = entry.data[CONF_MODEL]
         self._attr_unique_id: str | None = entry.entry_id
 
-        self.entry = entry
         self.apis = "assist"
         self.model = entry.data[CONF_MODEL]
         self.agent = AsyncClient(
             host=entry.data[CONF_URL], verify=get_default_context()
         )
         self.options = {
-            "temperature": 0,
-            "enable_thinking": False,
+            # "temperature": 0,
+            # "enable_thinking": False,
         }
-        self.prompt = "/no_think "
+        self.prompt = entry.data[CONF_PROMPT]
 
     @property
     @override
@@ -82,9 +81,8 @@ class OllamaAgent(ConversationEntity):
     async def _async_handle_message(
         self, user_input: ConversationInput, chat_log: ChatLog
     ) -> ConversationResult:
-        await chat_log.async_update_llm_data(
-            DOMAIN,
-            user_input,
+        await chat_log.async_provide_llm_data(
+            user_input.as_llm_context(DOMAIN),
             self.apis,
             self.prompt,
         )
@@ -125,8 +123,12 @@ class OllamaAgent(ConversationEntity):
                 break
 
         LOGGER.debug(chat_log)
+        content = chat_log.content[-1].content or ""
+        if self.model.startswith("qwen3"):
+            content = content[18:]
+
         response = IntentResponse(language=user_input.language)
-        response.async_set_speech(chat_log.content[-1].content)  # pyright: ignore[reportArgumentType, reportAttributeAccessIssue] content should always be at least length 1
+        response.async_set_speech(content)
         return ConversationResult(
             response,
             conversation_id=chat_log.conversation_id,
@@ -180,11 +182,17 @@ async def ollama_stream(
     responses: AsyncIterator[ChatResponse],
 ) -> AsyncGenerator[AssistantContentDeltaDict]:
     """Transform an Ollama delta stream into HA format."""
+
+    first = True
+
     async for response in responses:
         delta = AssistantContentDeltaDict(
-            role="assistant",
             content=response.message.content,
         )
+        if first:
+            delta["role"] = "assistant"
+            first = False
+
         if tool_calls := response.message.tool_calls:
             delta["tool_calls"] = [
                 llm.ToolInput(
